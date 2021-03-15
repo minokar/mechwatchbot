@@ -118,15 +118,15 @@ def read_df_pickle(fp):
 def write_df_pickle(fp, df):
     df.to_pickle(fp, protocol=pickle.HIGHEST_PROTOCOL)
 
-def is_allowable_trade_location(user_df, submission):
-	return not user_df.loc[index]['l'] or '['+user_df.loc[index]['l'].lower() in submission.title.lower()
+def is_allowable_trade_location(user_df_row, submission):
+	return not user_df_row['l'] or '['+user_df_row['l'].lower() in submission.title.lower()
 
 def alert_interested_users(user_df, user_column, title_text, submission):
     # filtering title
     users = user_df.loc[[any(x in title_text for x in y) for y in user_df[user_column].tolist()]]
     for index, row in users.iterrows():
         # filtering location
-        if user_column in ['h', 'w', 's'] and not is_allowable_trade_location(user_df, submission):
+        if user_column in ['h', 'w', 's'] and not is_allowable_trade_location(user_df.loc[index], submission):
         	continue
 
         print(f"Alerting {user_df.loc[index].name} to {submission.title}", flush=True)
@@ -265,9 +265,6 @@ def analyze_submission(submission):
 if __name__ == "__main__":
     if os.path.exists(user_df_pickle+'.lock'):
         os.remove(user_df_pickle+'.lock')
-
-    if not os.path.exists(user_df_pickle):
-    	pickle.dump(pd.DataFrame(columns=['RedditUser', 'h', 'w', 's', 'gb', 'ic', 'v', 'l']), open(user_df_pickle, "wb"))
 
     inbox_monitor_proc = Process(target=inbox_monitor)
     inbox_monitor_proc.start()
