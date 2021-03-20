@@ -20,6 +20,8 @@ vendor_regex = re.compile(r'\[vendor\](?P<title>.*)')
 groupbuy_regex = re.compile(r'\[gb\](?P<title>.*)')
 ic_regex = re.compile(r'\[ic\](?P<title>.*)')
 
+watchlist_ordered_types = ['h', 'w', 's', 'ic', 'v', 'gb']
+
 class RedditUser():
     def __init__(self, username, message):
         self.username = username
@@ -29,30 +31,15 @@ class RedditUser():
     def update_messages(self, message):
         self.message = message
 
-
     def get_watch_list(self, message):
         user_df = read_df_pickle(user_df_pickle)
         this_user = user_df.loc[self.username]
         body = 'Your current watch list for /r/mechmarket is:\n\n'
-        item_counter = 1
-        for item in this_user['h']:
-            body += str(item_counter)+'. [H] '+item+'\n\n'
-            item_counter += 1
-        for item in this_user['w']:
-            body += str(item_counter)+'. [W] '+item+'\n\n'
-            item_counter += 1
-        for item in this_user['s']:
-            body += str(item_counter)+'. [H] '+item+' + [W] Paypal\n\n'
-            item_counter += 1
-        for item in this_user['ic']:
-            body += str(item_counter)+'. [IC] '+item+'\n\n'
-            item_counter += 1
-        for item in this_user['v']:
-            body += str(item_counter)+'. [V] '+item+'\n\n'
-            item_counter += 1
-        for item in this_user['gb']:
-            body += str(item_counter)+'. [GB] '+item+'\n\n'
-            item_counter += 1
+        item_count = 1
+        for watch_type in watchlist_ordered_types:
+            for item in this_user[watch_type]:
+                    body += get_formatted_watch_list_string(watch_type, item, item_count)
+                    item_count += 1
 
         body += f"Your current location is: {this_user['l'].upper() if this_user['l'] else 'Earth'}"
 
@@ -95,6 +82,10 @@ class RedditUser():
     def send_message(self, body):
         reddit.inbox.message(self.message).reply(body)
 
+def get_formatted_watch_list_string(watch_type, item, item_count):
+        formatted_substring = \
+            f'[H] {item} + [W] Paypal' if watch_type == 's' else f'[{watch_type.upper()}] {item}'
+        return f'{item_count}. {formatted_substring}\n\n'
 
 def lock_controlled_file(func):
     def wrap(*args, **kwargs):
@@ -119,7 +110,7 @@ def write_df_pickle(fp, df):
     df.to_pickle(fp, protocol=pickle.HIGHEST_PROTOCOL)
 
 def is_allowable_trade_location(user_df_row, submission):
-	return not user_df_row['l'] or '['+user_df_row['l'].lower() in submission.title.lower()
+    return not user_df_row['l'] or '['+user_df_row['l'].lower() in submission.title.lower()
 
 def alert_interested_users(user_df, user_column, title_text, submission):
     # filtering title
@@ -127,7 +118,7 @@ def alert_interested_users(user_df, user_column, title_text, submission):
     for index, row in users.iterrows():
         # filtering location
         if user_column in ['h', 'w', 's'] and not is_allowable_trade_location(user_df.loc[index], submission):
-        	continue
+            continue
 
         print(f"Alerting {user_df.loc[index].name} to {submission.title}", flush=True)
         try:
@@ -139,12 +130,11 @@ def alert_interested_users(user_df, user_column, title_text, submission):
 def remove_item_by_index(user_df, author, index):
     index_counter = 0
     this_user = user_df.loc[author]
-    types = ['h', 'w', 'ic', 'v', 'gb']
-    lengths_in_order = [len(this_user.loc[x]) for x in types]
+    lengths_in_order = [len(this_user.loc[x]) for x in watchlist_ordered_types]
     length_so_far = 0
     for i, this_length in enumerate(lengths_in_order):
         if index < length_so_far+this_length:
-            rm_item = user_df.loc[author][types[i]].pop(index-length_so_far)
+            rm_item = user_df.loc[author][watchlist_ordered_types[i]].pop(index-length_so_far)
             user_df.loc[author]['RedditUser'].send_message(f"Removed {rm_item} from watchlist.")
             return user_df
         else:
@@ -203,16 +193,16 @@ def inbox_monitor():
                     if new_item not in user_df.loc[author][watch_type]:
                         user_df.loc[author][watch_type].append(new_item)
                         if slash_command == '/s':
-                        	this_user.send_message(f"Got it. Watching for [H] {new_item.title()} + [W] Paypal in /r/mechmarket!")
+                            this_user.send_message(f"Got it. Watching for [H] {new_item.title()} + [W] Paypal in /r/mechmarket!")
                         else:
-                        	this_user.send_message(f"Got it. Watching for [{watch_type.upper()}] {new_item.title()} in /r/mechmarket!")
+                            this_user.send_message(f"Got it. Watching for [{watch_type.upper()}] {new_item.title()} in /r/mechmarket!")
                     else:
                         this_user.send_message(f"{new_item} already in watch list!")
 
                     # Dedupe /h and /s to avoid duplicate messages.
                     if slash_command in ['/h', '/s'] and new_item in user_df.loc[author]['h'] and new_item in user_df.loc[author]['s']:
-                    	user_df.loc[author]['h' if slash_command == '/s' else 's'].remove(new_item)
-                    	this_user.send_message(f"Overriding overlapping `{'/h' if slash_command == '/s' else '/s'}` {new_item} command. \
+                        user_df.loc[author]['h' if slash_command == '/s' else 's'].remove(new_item)
+                        this_user.send_message(f"Overriding overlapping `{'/h' if slash_command == '/s' else '/s'}` {new_item} command. \
                             Only one of `/h` and `/s` can apply to a given item.")
 
                     write_df_pickle(user_df_pickle, user_df)
@@ -252,7 +242,7 @@ def analyze_submission(submission):
         alert_interested_users(user_df, 'w', m.group('want'), submission)
         alert_interested_users(user_df, 'h', m.group('have'), submission)
         if selling_regex.search(title):
-        	alert_interested_users(user_df, 's', selling_regex.search(title).group('have'), submission)
+            alert_interested_users(user_df, 's', selling_regex.search(title).group('have'), submission)
     elif groupbuy_regex.search(title):
         alert_interested_users(user_df, 'gb', groupbuy_regex.search(title).group('title'), submission)
     elif vendor_regex.search(title):
